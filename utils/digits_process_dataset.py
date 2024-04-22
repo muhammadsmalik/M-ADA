@@ -9,6 +9,47 @@ from scipy import io
 import pickle
 from utils.ops import *
 
+import os
+import pandas as pd
+from PIL import Image
+
+def load_custom_seed(data_dir, split='train'):
+    print(f'Loading custom seed dataset - {split} split.')
+    
+    if split == 'train':
+        csv_file = 'train.csv'
+    elif split == 'val':
+        csv_file = 'val.csv'
+    elif split == 'test':
+        csv_file = 'test.csv'
+    elif split == 'test_2':
+        csv_file = 'test_2.csv'
+    else:
+        raise ValueError(f"Invalid split: {split}")
+    
+    csv_path = os.path.join(data_dir, 'seed_dataset', csv_file)
+    df = pd.read_csv(csv_path)
+    
+    image_dir = os.path.join(data_dir, 'seed_dataset', 'images')
+    
+    images = []
+    labels = []
+    
+    for _, row in df.iterrows():
+        img_path = os.path.join(image_dir, row['filename'])
+        img = Image.open(img_path).convert('RGB')
+        img = img.resize((32, 32))  # Resize the image to 32x32
+        img_array = np.array(img) / 255.0
+        images.append(img_array)
+        
+        label = 0 if row['label'] == 'GOOD' else 1
+        labels.append(label)
+    
+    images = np.array(images)
+    labels = np.array(labels)
+    
+    return images, labels
+
 def load_svhn(data_dir, split='train'):
     print('Loading SVHN dataset.')
     image_file = 'train_32x32.mat' if split == 'train' else 'test_32x32.mat'
@@ -102,6 +143,8 @@ def load_test_data(data_dir, target):
         target_test_images, target_test_labels = load_usps(data_dir, split='test')
     elif target == 'mnist_m':
         target_test_images, target_test_labels = load_mnist_m(data_dir, split='test')
+    elif target == 'seed_dataset':
+        target_test_images, target_test_labels = load_custom_seed(data_dir, split='test')
     return target_test_images, target_test_labels
 
 def asarray_and_reshape(imgs, labels):
@@ -122,8 +165,13 @@ def construct_datasets(data_dir, batch_size, kwargs):
         X_loader = torch.utils.data.DataLoader(X_dataset, batch_size=batch_size, shuffle=True, drop_last=True, **kwargs)
         return X_loader
 
-    train_imgs, train_labels = load_mnist(data_dir, 'train')
-    val_imgs, val_labels = load_mnist(data_dir, 'test')
+    # Load custom seed dataset
+    train_imgs, train_labels = load_custom_seed(data_dir, 'train')
+    val_imgs, val_labels = load_custom_seed(data_dir, 'val')
+
+    # Load source mnist dataset
+    # train_imgs, train_labels = load_mnist(data_dir, 'train')
+    # val_imgs, val_labels = load_mnist(data_dir, 'test')
 
     return data2loader(train_imgs, train_labels), data2loader(val_imgs, val_labels)
 
@@ -164,7 +212,7 @@ def evaluation(model, data_dir, batch_size, kwargs):
     model.eval()
     params = list(model.parameters())
     accs = []
-    target_domains = ['mnist_m']
+    target_domains = ['seed_dataset']
     for td in target_domains:
         print(f"Evaluating on target domain: {td}")
         target_test_images, target_test_labels = load_test_data(data_dir, td)

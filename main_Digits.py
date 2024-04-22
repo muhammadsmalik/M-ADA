@@ -19,8 +19,8 @@ numpy.random.seed(0)
 parser = argparse.ArgumentParser(description='Training on Digits')
 parser.add_argument('--data_dir', default='data', type=str,
                     help='dataset dir')
-parser.add_argument('--dataset', default='mnist', type=str,
-                    help='dataset mnist or cifar10')
+parser.add_argument('--dataset', default='seed_dataset', type=str,
+                    help='dataset seed_dataset')
 parser.add_argument('--num_iters', default=10001, type=int,
                     help='number of total iterations to run')
 parser.add_argument('--start_iters', default=0, type=int,
@@ -135,7 +135,12 @@ def train(model, exp_name, kwargs):
                     break
 
                 if counter_k > 0:
-                    input_b, target_b = next(aug_loader_iter)
+                    try:
+                        input_b, target_b = next(aug_loader_iter)
+                    except StopIteration:
+                        aug_loader_iter = iter(aug_loader)
+                        input_b, target_b = next(aug_loader_iter)
+
                     input_comb = torch.cat((input_a[:src_num].float(), input_b[:aug_num])).cuda(non_blocking=True)
                     target_comb = torch.cat((target_a[:src_num].long(), target_b[:aug_num])).cuda(non_blocking=True)
                     input_aug = input_comb.clone()
@@ -230,7 +235,7 @@ def train(model, exp_name, kwargs):
             params = [(param - args.lr * grad).requires_grad_() for param, grad in zip(params, grads)]
             try:
                 input_b, target_b = next(aug_loader_iter)
-            except:
+            except StopIteration:
                 aug_loader_iter = iter(aug_loader)
                 input_b, target_b = next(aug_loader_iter)
 
