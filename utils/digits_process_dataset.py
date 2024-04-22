@@ -4,7 +4,7 @@ import torch.nn.parallel
 import torch.optim
 import torch.utils.data
 import scipy
-from scipy import misc
+import imageio
 from scipy import io
 import pickle
 from utils.ops import *
@@ -26,8 +26,8 @@ def load_mnist(data_dir, split='train'):
     image_dir = os.path.join(data_dir, 'mnist', image_file)
     with open(image_dir, 'rb') as f:
         mnist = pickle.load(f, encoding="bytes")
-    images = mnist[b'X']
-    labels = mnist[b'y']
+    images = mnist['X']
+    labels = mnist['y']
     images = images / 255.
     images = np.stack((images, images, images), axis=3)  # grayscale to rgb
     return np.squeeze(images[:10000]), labels[:10000]
@@ -53,7 +53,7 @@ def load_mnist_m(data_dir, split='train'):
     images = np.zeros((len(labels), 32, 32, 3))
     for no_img, img in enumerate(images_files):
         img_dir = os.path.join(data_dir, img)
-        im = misc.imread(img_dir)
+        im = imageio.imread(img_dir)
         im = np.expand_dims(im, axis=0)
         images[no_img] = im
     images = images
@@ -152,7 +152,6 @@ def validate(val_loader, model):
     return top1.avg
 
 def evaluation(model, data_dir, batch_size, kwargs):
-
     def data2loader(imgs, labels):
         assert len(imgs) == len(labels)
         y = torch.stack([torch.from_numpy(np.array(i)) for i in labels])
@@ -160,14 +159,14 @@ def evaluation(model, data_dir, batch_size, kwargs):
         X = torch.stack([torch.from_numpy(imgs[i]) for i in range(len(labels))])
         X_dataset = torch.utils.data.TensorDataset(X, y)
         X_loader = torch.utils.data.DataLoader(X_dataset, batch_size=batch_size, shuffle=True, drop_last=True, **kwargs)
-        return  X_loader
+        return X_loader
 
     model.eval()
     params = list(model.parameters())
     accs = []
-    target_domains = ['svhn', 'mnist_m', 'syn', 'usps']
+    target_domains = ['mnist_m']
     for td in target_domains:
-        print(td)
+        print(f"Evaluating on target domain: {td}")
         target_test_images, target_test_labels = load_test_data(data_dir, td)
         test_loader = data2loader(target_test_images, target_test_labels)
 
@@ -188,8 +187,53 @@ def evaluation(model, data_dir, batch_size, kwargs):
             end = time.time()
 
         accs.append(top1.avg)
-        print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
+        print(f" * Prec@1 {top1.avg:.3f}")
 
-    avg_acc = np.mean(accs[1:])
-    accs.append(avg_acc)
-    print('avg acc', avg_acc)
+    print(f"Accuracies: {accs}")
+    avg_acc = np.mean(accs)
+    print(f"Average accuracy: {avg_acc:.3f}")
+
+## for multiple test sets
+# def evaluation(model, data_dir, batch_size, kwargs):
+#
+#     def data2loader(imgs, labels):
+#         assert len(imgs) == len(labels)
+#         y = torch.stack([torch.from_numpy(np.array(i)) for i in labels])
+#         imgs = np.transpose(imgs, (0, 3, 1, 2))
+#         X = torch.stack([torch.from_numpy(imgs[i]) for i in range(len(labels))])
+#         X_dataset = torch.utils.data.TensorDataset(X, y)
+#         X_loader = torch.utils.data.DataLoader(X_dataset, batch_size=batch_size, shuffle=True, drop_last=True, **kwargs)
+#         return  X_loader
+#
+#     model.eval()
+#     params = list(model.parameters())
+#     accs = []
+#     # target_domains = ['svhn', 'mnist_m', 'syn', 'usps']
+#     target_domains = ['mnist_m']
+#     for td in target_domains:
+#         print(td)
+#         target_test_images, target_test_labels = load_test_data(data_dir, td)
+#         test_loader = data2loader(target_test_images, target_test_labels)
+#
+#         batch_time = AverageMeter()
+#         top1 = AverageMeter()
+#         end = time.time()
+#
+#         for i, (input, target) in enumerate(test_loader):
+#             target = target.cuda(non_blocking=True).long()
+#             input = input.cuda(non_blocking=True).float()
+#             with torch.no_grad():
+#                 output = model.functional(params, False, input)
+#             # measure accuracy and record loss
+#             prec1 = accuracy(output.data, target, topk=(1,))[0]
+#             top1.update(prec1.item(), input.size(0))
+#             # measure elapsed time
+#             batch_time.update(time.time() - end)
+#             end = time.time()
+#
+#         accs.append(top1.avg)
+#         print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
+#
+#     avg_acc = np.mean(accs[1:])
+#     accs.append(avg_acc)
+#     print('avg acc', avg_acc)

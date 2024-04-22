@@ -10,6 +10,9 @@ import numpy
 from metann import Learner
 from utils.digits_process_dataset import *
 
+import os
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+
 torch.manual_seed(0)
 numpy.random.seed(0)
 
@@ -165,7 +168,7 @@ def train(model, exp_name, kwargs):
                     relaxation = mse_loss(recon_batch, recon_batch_aug)
                     adv_loss = -(args.beta * relaxation + ce_loss - args.gamma * constraint)
                     aug_optimizer.zero_grad()
-                    adv_loss.backward()
+                    adv_loss.backward(retain_graph=True)
                     aug_optimizer.step()
 
                 virtual_test_images.append(input_aug.data.cpu().numpy())
@@ -262,7 +265,6 @@ def train(model, exp_name, kwargs):
             }, args.dataset, exp_name)
 
 def wae_train(model, D, new_aug_loader, optimizer, d_optimizer, epoch):
-
     def sample_z(n_sample=None, dim=None, sigma=None, template=None):
         if n_sample is None:
             n_sample = 32
@@ -283,7 +285,13 @@ def wae_train(model, D, new_aug_loader, optimizer, d_optimizer, epoch):
 
     for batch_idx, (data, _) in enumerate(new_aug_loader):
         input_comb = data.cuda(non_blocking=True).float()
+
+        # Normalize input_comb to be within [0, 1]
+        input_comb = torch.clamp(input_comb, min=0.0, max=1.0)
+        # print(f"Normalized Input comb batch min: {input_comb.min().item()}, max: {input_comb.max().item()}")
+
         optimizer.zero_grad()
+        d_optimizer.zero_grad()
 
         recon_batch, z_tilde = model(input_comb)
         z = sample_z(template=z_tilde, sigma=z_sigma)
@@ -295,16 +303,20 @@ def wae_train(model, D, new_aug_loader, optimizer, d_optimizer, epoch):
                  F.binary_cross_entropy_with_logits(D_z_tilde + log_p_z, zeros)
 
         total_D_loss = param * D_loss
-        d_optimizer.zero_grad()
-        total_D_loss.backward()
-        d_optimizer.step()
 
         BCE = F.binary_cross_entropy(recon_batch, input_comb.view(-1, 3072), reduction='sum')
         Q_loss = F.binary_cross_entropy_with_logits(D_z_tilde + log_p_z, ones)
         loss = BCE + param * Q_loss
-        loss.backward()
-        train_loss += loss.item()
+
+        # Calculate gradients for both losses but only apply them after both are calculated
+        total_combined_loss = total_D_loss + loss
+        total_combined_loss.backward()
+
+        # Step both optimizers
+        d_optimizer.step()
         optimizer.step()
+
+        train_loss += loss.item()
 
         if batch_idx % args.print_freq == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
